@@ -323,7 +323,7 @@ def process_discovery_job(payload: dict, run_id: str) -> None:
                     discovery_source = candidate.get("discovery_source", source.upper())
                     if should_extract(candidate["prefilter_score"], mode, discovery_source):
                         enqueue_job(
-                            "extract",
+                            settings.queue_name,  # Use same queue as discovery jobs
                             {
                                 "candidate_id": candidate_id,
                                 "run_id": run_id,

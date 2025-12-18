@@ -43,6 +43,10 @@ def get_due_municipalities(pool, limit: int = BATCH_SIZE):
     Returns municipalities from municipality_seed that either:
     - Have no recent crawl_stats entries, OR
     - Have crawl_stats entries older than RESCAN_INTERVAL_DAYS
+    
+    Note: This function expects the table 'municipality_seed' to exist.
+    If the table doesn't exist or is empty, run:
+    - scripts/load_brandenburg_municipalities_complete.py
     """
     with pool.connection() as conn:
         with conn.cursor() as cur:
@@ -50,8 +54,10 @@ def get_due_municipalities(pool, limit: int = BATCH_SIZE):
             # This query finds municipalities that either:
             # 1. Have no crawl_stats entries, OR
             # 2. Have their most recent crawl_stats entry older than RESCAN_INTERVAL_DAYS
+            # 
+            # Table name: municipality_seed (consistent with all other scripts in codebase)
             query = """
-                SELECT DISTINCT ms.municipality_key, ms.name, ms.county, ms.state
+                SELECT ms.municipality_key, ms.name, ms.county, ms.state, cs.last_crawled
                 FROM municipality_seed ms
                 LEFT JOIN LATERAL (
                     SELECT MAX(created_at) as last_crawled
@@ -64,8 +70,18 @@ def get_due_municipalities(pool, limit: int = BATCH_SIZE):
                 ORDER BY cs.last_crawled NULLS FIRST, ms.municipality_key
                 LIMIT %s;
             """
-            cur.execute(query, (RESCAN_INTERVAL_DAYS, limit))
-            return cur.fetchall()
+            try:
+                cur.execute(query, (RESCAN_INTERVAL_DAYS, limit))
+                return cur.fetchall()
+            except Exception as e:
+                # Provide helpful error message if table doesn't exist
+                error_msg = str(e).lower()
+                if "does not exist" in error_msg or "relation" in error_msg:
+                    logger.error(
+                        "Table 'municipality_seed' not found. "
+                        "Please run: python scripts/load_brandenburg_municipalities_complete.py"
+                    )
+                raise
 
 
 def sanitize_municipality_name_for_url(name: str) -> str:
@@ -222,7 +238,12 @@ def main():
                 
                 # Enqueue discovery jobs for each municipality
                 cycle_jobs = 0
-                for muni_key, name, county, state in candidates:
+                for row in candidates:
+                    # Handle both old format (4 columns) and new format (5 columns with last_crawled)
+                    if len(row) == 5:
+                        muni_key, name, county, state, last_crawled = row
+                    else:
+                        muni_key, name, county, state = row
                     jobs = enqueue_municipality_discovery_jobs(muni_key, name, county, state)
                     cycle_jobs += jobs
                     total_jobs_enqueued += jobs

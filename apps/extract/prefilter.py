@@ -43,6 +43,12 @@ def prefilter_score(
     if any(term in title_lower for term in strong_bess_terms):
         score += 0.6
     
+    # TEMPORARY: Solar/Photovoltaik test (+0.4) - to verify pipeline works
+    # Remove this after confirming pipeline is functional
+    solar_terms = ["photovoltaik", "pv", "solarpark", "solaranlage", "solar"]
+    if any(term in title_lower for term in solar_terms):
+        score += 0.4
+    
     # Procedure signals (+0.3)
     procedure_terms = [
         "aufstellungsbeschluss",

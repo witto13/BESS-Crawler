@@ -273,9 +273,10 @@ def process_discovery_job(payload: dict, run_id: str) -> None:
                 domain = municipality_name or "unknown"
             
             # Crawl each section
-            for section in sections:
+            # Note: sections is a List[str] (URLs), not List[Dict]
+            for section_url in sections:
                 try:
-                    items = crawl_municipal_section(section["url"])
+                    items = crawl_municipal_section(section_url)
                     counts["pages_fetched"] += 1
                     
                     for item in items:
@@ -288,7 +289,7 @@ def process_discovery_job(payload: dict, run_id: str) -> None:
                         score = prefilter_score(title, url)
                         
                         # Use section URL as discovery_path
-                        discovery_path = section.get("url") or entrypoint or municipality_name
+                        discovery_path = section_url or entrypoint or municipality_name
                         
                         candidate = {
                             "run_id": run_id,
@@ -305,7 +306,7 @@ def process_discovery_job(payload: dict, run_id: str) -> None:
                         candidates.append(candidate)
                         counts["candidates_found"] += 1
                 except Exception as e:
-                    logger.warning("Failed to crawl section %s: %s", section.get("url"), e)
+                    logger.warning("Failed to crawl section %s: %s", section_url, e)
                     continue
         
         # Insert candidates and enqueue extraction jobs

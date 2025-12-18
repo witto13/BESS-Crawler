@@ -34,7 +34,33 @@
 
 **Note:** This is TEMPORARY - remove after confirming pipeline works
 
-### 3. ⚠️ To Verify: State Filter
+### 3. ✅ Implemented: Spider Approach for Municipal Website Discovery
+
+**Problem:** Static path-based discovery (17 predefined paths) misses many German municipal websites with inconsistent structures.
+
+**Solution:** Implemented dynamic spider approach:
+- Loads the homepage
+- Dynamically finds links containing keywords: "Bauen", "Planung", "Satzungen", "Bekanntmachung", etc.
+- Follows those links specifically
+- Only follows links on same domain (avoids external links)
+- Falls back to predefined paths if spider finds nothing
+
+**Benefits:**
+- More adaptive to inconsistent website structures
+- Discovers sections that don't match predefined paths
+- Better coverage for German municipal websites
+
+**Files Modified:**
+- `apps/crawlers/discovery/municipal_website.py` (complete rewrite of discovery logic)
+
+**Keywords Searched:**
+- Planning: "bauen", "planung", "bebauungsplan", "bauleitplanung", "b-plan", "stadtplanung"
+- Announcements: "bekanntmachung", "satzung", "verordnung", "amtliche", "öffentlich"
+- Procedures: "verfahren", "beteiligung", "auslegung", "aufstellung"
+- Building: "bauvorbescheid", "baugenehmigung", "bauantrag"
+- Committees: "bauausschuss", "planungsausschuss", "gemeindevertretung"
+
+### 4. ⚠️ To Verify: State Filter
 
 **Potential Issue:** Orchestrator filters by `state = 'BB'`
 

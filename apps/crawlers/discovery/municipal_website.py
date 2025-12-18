@@ -1,6 +1,12 @@
 """
 Municipal website crawler - discovers B-Plan and permit signals from official municipal websites.
-Only crawls specific sections defined in discovery paths.
+
+Uses SPIDER approach:
+1. Loads the homepage
+2. Dynamically finds links containing keywords: "Bauen", "Planung", "Satzungen", "Bekanntmachung", etc.
+3. Follows those links specifically
+
+Falls back to predefined paths if spider approach finds nothing.
 """
 from typing import List, Dict, Optional
 import requests
@@ -19,13 +25,118 @@ USER_AGENT = "BESS-Forensic-Crawler/1.0 (Research/Transparency; +https://github.
 def discover_municipal_sections(base_url: str) -> List[str]:
     """
     Discover which municipal sections exist and are accessible.
+    Uses SPIDER approach: loads homepage and follows relevant links dynamically.
+    Falls back to predefined paths if spider approach finds nothing.
+    
     Returns list of accessible URLs.
     """
-    accessible_urls = []
     base_url = base_url.rstrip("/")
-    
     session = requests.Session()
     session.headers.update({"User-Agent": USER_AGENT})
+    
+    # SPIDER APPROACH: Load homepage and find relevant links
+    accessible_urls = _spider_discover_sections(base_url, session)
+    
+    # FALLBACK: If spider found nothing, try predefined paths
+    if not accessible_urls:
+        logger.debug("Spider approach found no sections, falling back to predefined paths")
+        accessible_urls = _path_based_discover_sections(base_url, session)
+    
+    return accessible_urls
+
+
+def _spider_discover_sections(base_url: str, session: requests.Session) -> List[str]:
+    """
+    SPIDER APPROACH: Load homepage and dynamically discover relevant sections.
+    
+    Strategy:
+    1. Load the homepage
+    2. Look for links containing keywords: "Bauen", "Planung", "Satzungen", "Bekanntmachung", etc.
+    3. Follow those links specifically
+    4. Return list of discovered section URLs
+    """
+    accessible_urls = []
+    visited_urls = set()
+    
+    # Keywords to look for in links (German planning/announcement terms)
+    relevant_keywords = [
+        # Planning terms
+        "bauen", "planung", "bebauungsplan", "bauleitplanung", "b-plan",
+        "stadtplanung", "flaechennutzungsplan", "fnp",
+        # Announcement terms
+        "bekanntmachung", "bekanntmachungen", "amtliche", "öffentlich", "oeffentlich",
+        "satzung", "satzungen", "verordnung", "verordnungen",
+        # Procedure terms
+        "verfahren", "beteiligung", "auslegung", "aufstellung",
+        # Building/construction terms
+        "bauvorbescheid", "baugenehmigung", "bauantrag", "bauvorhaben",
+        # Committee/meeting terms
+        "bauausschuss", "planungsausschuss", "gemeindevertretung",
+    ]
+    
+    try:
+        # Step 1: Load homepage
+        logger.debug("Spider: Loading homepage %s", base_url)
+        resp = session.get(base_url, timeout=15, allow_redirects=True)
+        if resp.status_code != 200:
+            logger.debug("Spider: Homepage not accessible (status %d)", resp.status_code)
+            return accessible_urls
+        
+        soup = BeautifulSoup(resp.text, "html.parser")
+        visited_urls.add(base_url)
+        
+        # Step 2: Find all links on homepage
+        candidate_urls = []
+        for anchor in soup.find_all("a", href=True):
+            href = anchor.get("href", "")
+            text = anchor.get_text(strip=True)
+            
+            # Build full URL
+            full_url = urljoin(base_url, href)
+            parsed = urlparse(full_url)
+            
+            # Only follow links on same domain
+            base_domain = urlparse(base_url).netloc
+            if parsed.netloc and parsed.netloc != base_domain:
+                continue  # External link, skip
+            
+            # Normalize URL (remove fragments, query params for comparison)
+            normalized_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}".rstrip("/")
+            
+            # Check if link text or URL contains relevant keywords
+            combined = (text + " " + href + " " + normalized_url).lower()
+            if any(keyword in combined for keyword in relevant_keywords):
+                if normalized_url not in visited_urls:
+                    candidate_urls.append((normalized_url, text))
+                    visited_urls.add(normalized_url)
+        
+        logger.debug("Spider: Found %d candidate links on homepage", len(candidate_urls))
+        
+        # Step 3: Verify candidate URLs are accessible
+        for url, link_text in candidate_urls:
+            try:
+                resp = session.get(url, timeout=10, allow_redirects=True)
+                if resp.status_code == 200:
+                    accessible_urls.append(url)
+                    logger.debug("Spider: Found accessible section: %s (from link: %s)", url, link_text[:50])
+            except Exception as e:
+                logger.debug("Spider: Section not accessible %s: %s", url, e)
+                continue
+        
+        logger.info("Spider: Discovered %d accessible sections from homepage", len(accessible_urls))
+        
+    except Exception as e:
+        logger.warning("Spider discovery failed for %s: %s", base_url, e)
+    
+    return accessible_urls
+
+
+def _path_based_discover_sections(base_url: str, session: requests.Session) -> List[str]:
+    """
+    FALLBACK: Path-based discovery using predefined paths.
+    Used when spider approach finds nothing.
+    """
+    accessible_urls = []
     
     for path in MUNICIPAL_DISCOVERY_PATHS:
         url = f"{base_url}{path}"
@@ -33,9 +144,9 @@ def discover_municipal_sections(base_url: str) -> List[str]:
             resp = session.get(url, timeout=10, allow_redirects=True)
             if resp.status_code == 200:
                 accessible_urls.append(url)
-                logger.debug("Found accessible section: %s", url)
+                logger.debug("Path-based: Found accessible section: %s", url)
         except Exception as e:
-            logger.debug("Section not accessible %s: %s", url, e)
+            logger.debug("Path-based: Section not accessible %s: %s", url, e)
             continue
     
     return accessible_urls
